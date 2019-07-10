@@ -515,6 +515,7 @@ tf_cc_test(
     srcs = ["hlo_reachability_test.cc"],
     deps = [
         ":hlo",
+        ":hlo_parser",
         ":hlo_reachability",
         "//tensorflow/compiler/xla:test",
         "//tensorflow/compiler/xla:test_helpers",
@@ -643,6 +644,7 @@ cc_library(
     hdrs = ["call_inliner.h"],
     deps = [
         ":call_graph",
+        ":hlo",
         ":hlo_dce",
         ":hlo_pass",
         "//tensorflow/compiler/xla:statusor",
@@ -1621,6 +1623,27 @@ cc_library(
         "//tensorflow/compiler/xla:literal_util",
         "//tensorflow/compiler/xla:statusor",
         "@com_google_absl//absl/algorithm:container",
+    ],
+)
+
+tf_cc_test(
+    name = "scatter_expander_test",
+    srcs = ["scatter_expander_test.cc"],
+    deps = [
+        ":hlo",
+        ":hlo_matchers",
+        ":hlo_parser",
+        ":scatter_expander",
+        "//tensorflow/compiler/xla:literal",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:test",
+        "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
+        "//tensorflow/core:test",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/memory",
     ],
 )
 
@@ -2848,8 +2871,10 @@ cc_library(
         ":hlo_casting_utils",
         ":hlo_pass",
         ":shape_inference",
+        "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:status_macros",
         "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla:xla_data_proto",
         "//tensorflow/core:lib",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/memory",
@@ -2874,6 +2899,7 @@ tf_cc_test(
         "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
         "//tensorflow/core:test",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -4032,6 +4058,17 @@ tf_cc_test(
 )
 
 cc_library(
+    name = "mem_wasted_on_passthrough_params",
+    srcs = ["mem_wasted_on_passthrough_params.cc"],
+    hdrs = ["mem_wasted_on_passthrough_params.h"],
+    deps = [
+        ":hlo",
+        ":hlo_pass",
+        "//tensorflow/compiler/xla:shape_util",
+    ],
+)
+
+cc_library(
     name = "ar_crs_combiner",
     srcs = ["ar_crs_combiner.cc"],
     hdrs = ["ar_crs_combiner.h"],
@@ -4215,5 +4252,19 @@ tf_cc_test(
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
         "//tensorflow/core:lib",
         "//tensorflow/core:test",
+    ],
+)
+
+cc_library(
+    name = "rng_expander",
+    srcs = ["rng_expander.cc"],
+    hdrs = ["rng_expander.h"],
+    deps = [
+        ":hlo_creation_utils",
+        ":op_expander_pass",
+        "//tensorflow/compiler/xla:literal_util",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla/client:xla_builder",
+        "//tensorflow/compiler/xla/client/lib:prng",
     ],
 )
