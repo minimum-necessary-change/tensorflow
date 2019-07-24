@@ -49,6 +49,7 @@ limitations under the License.
 #include "tensorflow/core/framework/node_def_util.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/types.pb.h"
+#include "tensorflow/core/framework/versions.pb.h"
 #include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -66,6 +67,12 @@ namespace {
 
 // TODO(jpienaar): unify and move from here to be able to reuse with tflite
 std::string GetName(Operation* inst) {
+  // TODO(prakalps): b/137006652 prevents us from using location info (derived
+  // from experimental_debug_info) to generate node names. Until it is fixed,
+  // first check for "name" attribute to get node name.
+  if (auto attr = inst->getAttrOfType<mlir::StringAttr>("name")) {
+    return attr.getValue();
+  }
   if (auto name_loc = inst->getLoc().dyn_cast<mlir::NameLoc>())
     return name_loc.getName().str();
 
@@ -84,11 +91,11 @@ std::string GetName(Operation* inst) {
 // Stateful helper class to export a function into a Graph.
 class Exporter {
  public:
-  // Converts the given Module to a Graph. The give module should only contain
+  // Converts the given Module to a Graph. The given module should only contain
   // one entry function, which is identified by name "main". This entry function
   // is converted to the base of the graph graph. The rest of the functions are
   // converted to the library functions in that graph.
-  static Status Convert(mlir::Module module, const ExporterConfigs& configs,
+  static Status Convert(mlir::ModuleOp module, const ExporterConfigs& configs,
                         std::unique_ptr<Graph>* graph,
                         FunctionLibraryDefinition* flib_def);
 
@@ -401,6 +408,24 @@ StatusOr<std::unique_ptr<Graph>> Exporter::Convert(const ExporterConfigs& confs,
   }
 
   auto graph = absl::make_unique<Graph>(OpRegistry::Global());
+
+  // Extract version info.
+  auto version_attr = function.getParentOfType<mlir::ModuleOp>()
+                          .getAttrOfType<mlir::DictionaryAttr>("tf.versions");
+  if (version_attr) {
+    VersionDef versions;
+    versions.set_producer(
+        version_attr.get("producer").cast<mlir::IntegerAttr>().getInt());
+    versions.set_min_consumer(
+        version_attr.get("min_consumer").cast<mlir::IntegerAttr>().getInt());
+    for (auto bad_consumer :
+         version_attr.get("bad_consumers").cast<mlir::ArrayAttr>()) {
+      versions.mutable_bad_consumers()->Add(
+          bad_consumer.cast<mlir::IntegerAttr>().getInt());
+    }
+    graph->set_versions(versions);
+  }
+
   // We have to add the function library here, so a custom operation, which is
   // defined in the function library can be added to the graph.
   TF_RETURN_IF_ERROR(graph->AddFunctionLibrary(*flib));
@@ -448,7 +473,9 @@ StatusOr<std::unique_ptr<Graph>> Exporter::Convert(const ExporterConfigs& confs,
       // definition library
       // TODO(prakalps): If two functions have cyclic dependence, this will
       // introduce an infinite loop.
-      auto func = function.getModule().getNamedFunction(op_name.ValueOrDie());
+      auto func =
+          function.getParentOfType<mlir::ModuleOp>().lookupSymbol<mlir::FuncOp>(
+              op_name.ValueOrDie());
       if (func != nullptr) {
         TF_RETURN_IF_ERROR(ConvertLibFunction(confs, tf_dialect, func, flib));
         TF_RETURN_IF_ERROR(graph->AddFunctionLibrary(*flib));
@@ -510,8 +537,10 @@ Status Exporter::ConvertLibFunction(const ExporterConfigs& configs,
   // Checks for gradient attribute. If present converts the gradient function
   // and populates the GradientDef.
   auto grad_string = mlir::TF::TensorFlowDialect::GetGradientAttrName();
-  if (auto attr = function.getAttrOfType<mlir::FunctionAttr>(grad_string)) {
-    auto grad_func = function.getModule().getNamedFunction(attr.getValue());
+  if (auto attr = function.getAttrOfType<mlir::SymbolRefAttr>(grad_string)) {
+    auto grad_func =
+        function.getParentOfType<mlir::ModuleOp>().lookupSymbol<mlir::FuncOp>(
+            attr.getValue());
     TF_RETURN_IF_ERROR(
         ConvertLibFunction(configs, tf_dialect, grad_func, flib));
     GradientDef grad;
@@ -520,9 +549,14 @@ Status Exporter::ConvertLibFunction(const ExporterConfigs& configs,
     *flib->add_gradient() = grad;
   }
 
-  // Ignore the gradient attribute on the function as it gets converted to
-  // GradientDef.
-  absl::flat_hash_set<string> attrs_to_ignore = {grad_string};
+  auto stateful_string = mlir::TF::TensorFlowDialect::GetStatefulAttrName();
+  if (auto attr = function.getAttrOfType<mlir::UnitAttr>(stateful_string)) {
+    func_def.mutable_signature()->set_is_stateful(true);
+  }
+
+  // Ignore the gradient and is_stateful attribute on the function as they have
+  // been handled above.
+  absl::flat_hash_set<string> attrs_to_ignore = {grad_string, stateful_string};
   llvm::SmallVector<mlir::NamedAttribute, 8> funcAttrs(
       function.getDialectAttrs());
   TF_RETURN_IF_ERROR(
@@ -531,7 +565,7 @@ Status Exporter::ConvertLibFunction(const ExporterConfigs& configs,
   return Status::OK();
 }
 
-Status Exporter::Convert(mlir::Module module, const ExporterConfigs& configs,
+Status Exporter::Convert(mlir::ModuleOp module, const ExporterConfigs& configs,
                          std::unique_ptr<Graph>* graph,
                          FunctionLibraryDefinition* flib_def) {
   mlir::Identifier entry_func_id =
@@ -567,14 +601,14 @@ Status Exporter::Convert(mlir::Module module, const ExporterConfigs& configs,
 }
 }  // namespace
 
-Status ConvertMlirToGraph(mlir::Module module, const ExporterConfigs& confs,
+Status ConvertMlirToGraph(mlir::ModuleOp module, const ExporterConfigs& confs,
                           std::unique_ptr<Graph>* graph,
                           FunctionLibraryDefinition* flib_def) {
   return Exporter::Convert(module, confs, graph, flib_def);
 }
 
 StatusOr<std::unique_ptr<GraphDef>> ConvertMlirToGraphdef(
-    mlir::Module module, const ExporterConfigs& confs) {
+    mlir::ModuleOp module, const ExporterConfigs& confs) {
   FunctionLibraryDefinition flib_def(OpRegistry::Global(),
                                      FunctionDefLibrary());
   auto graph = absl::make_unique<Graph>(flib_def);

@@ -34,7 +34,7 @@ limitations under the License.
 namespace tensorflow {
 
 using mlir::MLIRContext;
-using mlir::Module;
+using mlir::ModuleOp;
 using mlir::OwningModuleRef;
 using stream_executor::port::StatusOr;
 
@@ -87,8 +87,8 @@ StatusOr<OwningModuleRef> LoadFromGraphdefOrMlirSource(
       context);
 }
 
-bool ShouldRunQuantizePasses(mlir::Module m) {
-  if (mlir::FuncOp main_fn = m.getNamedFunction("main")) {
+bool ShouldRunQuantizePasses(mlir::ModuleOp m) {
+  if (mlir::FuncOp main_fn = m.lookupSymbol<mlir::FuncOp>("main")) {
     return main_fn.getAttrOfType<mlir::UnitAttr>("tf.quantize") !=
            mlir::Attribute();
   }
@@ -127,7 +127,8 @@ void AddTFToTFLConversionPasses(bool emit_builtin_tflite_ops, bool run_quantize,
     pass_manager->addPass(mlir::TFL::CreateLegalizeTFPass());
     pass_manager->addPass(mlir::TFL::CreateOptimizePass());
     if (run_quantize) {
-      pass_manager->addPass(mlir::TFL::CreatePrepareQuantizePass());
+      pass_manager->addPass(mlir::TFL::CreatePrepareQuantizePass(
+          /*quantize_sign=*/false));
       pass_manager->addPass(mlir::TFL::CreateQuantizePass());
       pass_manager->addPass(
           mlir::TFL::CreatePostQuantizePass(emit_quant_adaptor_ops));
@@ -138,7 +139,7 @@ void AddTFToTFLConversionPasses(bool emit_builtin_tflite_ops, bool run_quantize,
 }
 
 Status ConvertTFControlFlowToTFLOrFlatbuffer(
-    mlir::Module module, bool export_to_mlir, bool emit_builtin_tflite_ops,
+    mlir::ModuleOp module, bool export_to_mlir, bool emit_builtin_tflite_ops,
     bool emit_select_tf_ops, bool emit_custom_ops, bool emit_quant_adaptor_ops,
     bool lower_tensor_list_ops, std::string *result) {
   mlir::StatusScopedDiagnosticHandler statusHandler(module.getContext(),
