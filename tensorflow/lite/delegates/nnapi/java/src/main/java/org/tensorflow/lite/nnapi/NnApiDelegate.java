@@ -47,8 +47,7 @@ public class NnApiDelegate implements Delegate, AutoCloseable {
   private static native long createDelegate();
 
   static {
-    // Ensure the native TensorFlow Lite libraries are available.  Note that we don't use
-    // `TensorFlowLite.init()`, as that would require making the method public.
-    TensorFlowLite.runtimeVersion();
+    // Ensure the native TensorFlow Lite libraries are available.
+    TensorFlowLite.init();
   }
 }

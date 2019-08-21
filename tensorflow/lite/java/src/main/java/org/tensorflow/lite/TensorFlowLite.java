@@ -21,8 +21,6 @@ public final class TensorFlowLite {
   private static final String PRIMARY_LIBNAME = "tensorflowlite_jni";
   private static final String FALLBACK_LIBNAME = "tensorflowlite_flex_jni";
 
-  private static final boolean INIT_SUCCESSFUL;
-
   private TensorFlowLite() {}
 
   /**
@@ -48,15 +46,11 @@ public final class TensorFlowLite {
   static native void initTensorFlow();
 
   /**
-   * Ensure the TensorFlowLite native library has been loaded.
+   * Load the TensorFlowLite runtime C library.
    *
    * @hide
    */
   public static boolean init() {
-    return INIT_SUCCESSFUL;
-  }
-
-  private static boolean tryInit() {
     Throwable primaryLibException;
     try {
       System.loadLibrary(PRIMARY_LIBNAME);
@@ -78,6 +72,6 @@ public final class TensorFlowLite {
   }
 
   static {
-    INIT_SUCCESSFUL = tryInit();
+    init();
   }
 }

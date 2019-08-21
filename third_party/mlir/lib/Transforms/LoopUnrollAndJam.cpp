@@ -43,8 +43,8 @@
 //===----------------------------------------------------------------------===//
 #include "mlir/Transforms/Passes.h"
 
-#include "mlir/AffineOps/AffineOps.h"
 #include "mlir/Analysis/LoopAnalysis.h"
+#include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -84,7 +84,7 @@ struct LoopUnrollAndJam : public FunctionPass<LoopUnrollAndJam> {
 
 std::unique_ptr<FunctionPassBase>
 mlir::createLoopUnrollAndJamPass(int unrollJamFactor) {
-  return llvm::make_unique<LoopUnrollAndJam>(
+  return std::make_unique<LoopUnrollAndJam>(
       unrollJamFactor == -1 ? None : Optional<unsigned>(unrollJamFactor));
 }
 
